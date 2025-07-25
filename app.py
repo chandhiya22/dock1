@@ -7,8 +7,9 @@ import cv2
 app = Flask(__name__)
 
 # Load your vehicle detection model
-torch.hub._validate_not_a_forked_repo=lambda a,b,c: True
-model = torch.hub.load('ultralytics/yolov5', 'custom', path='models/best(1).pt',force_reload=True)  # Update with your custom model path
+torch.hub._validate_not_a_forked_repo = lambda a, b, c: True
+model = torch.hub.load('ultralytics/yolov5', 'custom', path='models/best(1).pt', force_reload=True)
+
 UPLOAD_FOLDER = 'static/uploads'
 PROCESSED_FOLDER = 'static/processed'
 
@@ -20,8 +21,19 @@ os.makedirs(PROCESSED_FOLDER, exist_ok=True)
 def index():
     return render_template('index.html')
 
-@app.route('/detect', methods=['POST'])
+@app.route('/detect', methods=['GET', 'POST'])
 def detect():
+    if request.method == 'GET':
+        # Return simple form for manual browser testing
+        return '''
+        <h2>Upload an image or video for detection</h2>
+        <form method="POST" enctype="multipart/form-data">
+            <input type="file" name="file"><br><br>
+            <input type="submit" value="Upload">
+        </form>
+        '''
+
+    # Handle POST (file upload)
     if 'file' not in request.files:
         return "No file uploaded", 400
 
@@ -33,40 +45,34 @@ def detect():
     file_path = os.path.join(UPLOAD_FOLDER, file.filename)
     file.save(file_path)
 
-    # Process based on file type
+    # Determine file type and process
     if file.filename.lower().endswith(('.png', '.jpg', '.jpeg')):
-        # Process Image
         processed_file_path = process_image(file_path)
         file_type = 'image'
     elif file.filename.lower().endswith(('.mp4', '.avi')):
-        # Process Video
         processed_file_path = process_video(file_path)
         file_type = 'video'
     else:
         return "Unsupported file format", 400
 
-    # Get the URL for the processed file
     processed_url = url_for('static', filename='processed/' + os.path.basename(processed_file_path))
     upload_url = url_for('static', filename='uploads/' + os.path.basename(file_path))
+
     return render_template('index.html', uploaded_file=upload_url, processed_file=processed_url, file_type=file_type)
 
 def process_image(file_path):
-    # Load and detect vehicles in the image
     image = Image.open(file_path)
-    results = model(image)  # Run detection
-
-    # Render and save processed image
+    results = model(image)
     processed_image_path = os.path.join(PROCESSED_FOLDER, 'processed_' + os.path.basename(file_path))
     rendered_image = results.render()[0]
     Image.fromarray(rendered_image).save(processed_image_path)
     return processed_image_path
 
 def process_video(file_path):
-    # Open and process video
     cap = cv2.VideoCapture(file_path)
     output_file = os.path.join(PROCESSED_FOLDER, 'processed_' + os.path.basename(file_path))
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(output_file, fourcc, cap.get(cv2.CAP_PROP_FPS), 
+    out = cv2.VideoWriter(output_file, fourcc, cap.get(cv2.CAP_PROP_FPS),
                           (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))))
 
     while cap.isOpened():
@@ -74,14 +80,13 @@ def process_video(file_path):
         if not ret:
             break
 
-        # Run detection on each frame
         results = model(frame)
-        processed_frame = results.render()[0]  # Get processed frame
-        out.write(processed_frame)  # Write to output video
+        processed_frame = results.render()[0]
+        out.write(processed_frame)
 
     cap.release()
     out.release()
     return output_file
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0',port=8080)
+    app.run(host='0.0.0.0', port=8080)
